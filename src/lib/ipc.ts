@@ -110,7 +110,21 @@ export function errorMessage(e: unknown): string {
   return "Something went wrong.";
 }
 
+export interface BuildInfo {
+  appName: string;
+  version: string;
+  osName: string;
+  osVersion: string;
+  arch: string;
+  kernel: string;
+  packageManager: string | null;
+  tauriVersion: string;
+  rustVersion: string;
+}
+
 export const systemInfo = () => invoke<SystemInfo>("system_info");
+
+export const buildInfo = () => invoke<BuildInfo>("build_info");
 
 export const listVolumes = () => invoke<VolumeInfo[]>("list_volumes");
 

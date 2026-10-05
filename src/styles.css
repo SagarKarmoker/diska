@@ -434,6 +434,24 @@ summary:focus-visible,
     gap: 6px;
   }
 
+  .setting {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .setting-text {
+    flex: 1 0 100%;
+  }
+
+  .segmented {
+    flex: 1;
+  }
+
+  .segmented button {
+    flex: 1;
+    text-align: center;
+  }
+
   input[type="text"] {
     min-width: 0;
     flex: 1;
@@ -612,6 +630,129 @@ summary:focus-visible,
   border-color: var(--critical);
 }
 
+/* ---------- about ---------- */
+
+.cardrow {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  margin-bottom: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cardlabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.cardvalue {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.cardactions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+/* Definition list of build facts. Each row is a fixed-width term and a value, so
+   the values start on one vertical rule. */
+/*
+ * Fact tables are two explicit columns rather than one flow, so an odd number of
+ * rows never leaves a lone entry stranded at the bottom of the second column.
+ * The last row in each column drops its rule via the column's own last-child.
+ */
+.facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.factcol {
+  min-width: 0;
+}
+
+.factcol + .factcol {
+  border-left: 1px solid var(--line);
+}
+
+.facts dt,
+.facts dd {
+  margin: 0;
+}
+
+.factrow {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 7px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.factcol > .factrow:last-child {
+  border-bottom: 0;
+}
+
+.facts dt {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.bullets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.bullets li {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12.5px;
+  max-width: 96ch;
+}
+
+.bullets li:last-child {
+  border-bottom: 0;
+}
+
+.bullets strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
 .check {
   display: inline-flex;
   align-items: center;
@@ -621,7 +762,158 @@ summary:focus-visible,
   user-select: none;
 }
 
-input[type="checkbox"] {
+.toolbar-note {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/*
+ * Settings group. Each row is label-and-consequence on the left, control on the
+ * right, so the primary action never shares a line with a toggle and the two
+ * options read as a labelled pair rather than loose checkboxes.
+ */
+.settings {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.setting {
+  display: grid;
+  /* Label text takes the slack; the control is pinned to the trailing edge so
+     both rows line up on the same vertical rule. */
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 20px;
+  row-gap: 6px;
+  padding: 12px 14px;
+}
+
+.setting + .setting {
+  border-top: 1px solid var(--line);
+}
+
+.setting-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.setting-name {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.setting-hint {
+  color: var(--faint);
+  font-size: 11.5px;
+  /* Bounded measure: without this the hint stretches the full panel width and
+     the row reads as a paragraph with a control floating beside it. */
+  max-width: 68ch;
+}
+
+/*
+ * Switch rather than checkbox: it reads as a standing preference rather than
+ * an action to acknowledge. The knob moves with no transition, per the motion
+ * policy at the top of this file.
+ */
+input.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 19px;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--sunken);
+  cursor: pointer;
+}
+
+input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+input.switch:hover {
+  border-color: var(--accent);
+}
+
+input.switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input.switch:checked::after {
+  left: 17px;
+  background: var(--accent-ink);
+}
+
+input.switch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+ * Segmented control. Trash vs permanent is a choice between two modes, not an
+ * on/off preference, so one is always active and the destructive one says so.
+ */
+.segmented {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.segmented button {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.segmented button:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.segmented button.on {
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: var(--shadow);
+}
+
+.segmented button.on.is-danger {
+  color: var(--critical);
+}
+
+.segmented button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+input[type="checkbox"]:not(.switch) {
   appearance: none;
   width: 15px;
   height: 15px;
@@ -635,16 +927,16 @@ input[type="checkbox"] {
   place-content: center;
 }
 
-input[type="checkbox"]:hover:not(:disabled) {
+input[type="checkbox"]:not(.switch):hover:not(:disabled) {
   border-color: var(--accent);
 }
 
-input[type="checkbox"]:checked {
+input[type="checkbox"]:not(.switch):checked {
   background: var(--accent);
   border-color: var(--accent);
 }
 
-input[type="checkbox"]:checked::after {
+input[type="checkbox"]:not(.switch):checked::after {
   content: "";
   width: 8px;
   height: 4px;
@@ -653,12 +945,12 @@ input[type="checkbox"]:checked::after {
   transform: rotate(-45deg) translate(0.5px, -1px);
 }
 
-input[type="checkbox"]:disabled {
+input[type="checkbox"]:not(.switch):disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-input[type="checkbox"]:focus-visible {
+input[type="checkbox"]:not(.switch):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

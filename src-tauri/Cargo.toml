@@ -2,7 +2,9 @@
 name = "diska"
 version = "0.1.0"
 description = "Cross-platform disk usage analyzer and cache cleaner"
-authors = ["you"]
+authors = ["Sagar Karmoker <sagarkarmoker.official@gmail.com>"]
+repository = "https://github.com/SagarKarmoker/diska"
+license = "MIT"
 edition = "2021"
 
 [lib]

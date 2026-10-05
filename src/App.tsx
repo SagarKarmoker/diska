@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 
+import { AboutPanel } from "./components/AboutPanel";
 import { CleanerPanel } from "./components/CleanerPanel";
 import { ScannerPanel, pressureOf } from "./components/ScannerPanel";
 import { Empty, Section, Stat, UsageBar, toneForPercent } from "./components/primitives";
 import { errorMessage, listVolumes, systemInfo, type SystemInfo, type VolumeInfo } from "./lib/ipc";
 import { formatBytes, percentOf } from "./lib/format";
 
-type View = "overview" | "largest" | "clean";
+type View = "overview" | "largest" | "clean" | "about";
 
 const NAV: { id: View; label: string; hint: string }[] = [
   { id: "overview", label: "Overview", hint: "Capacity at a glance" },
   { id: "largest", label: "Largest files", hint: "What is using space" },
   { id: "clean", label: "Clean", hint: "Reclaim caches" },
+  { id: "about", label: "About", hint: "Version and credits" },
 ];
 
 /** Minimal inline glyphs. Drawn rather than iconified so there is no dependency. */
@@ -41,10 +43,17 @@ function Glyph({ id }: { id: View }) {
         <path d="M2 4h12M2 8h8M2 12h5" />
       </svg>
     );
+  if (id === "clean")
+    return (
+      <svg {...common}>
+        <path d="M2.5 4h11l-.8 8.2a1 1 0 0 1-1 .9H4.3a1 1 0 0 1-1-.9L2.5 4Z" />
+        <path d="M6 4V2.8M10 4V2.8M6.2 7.5v2.8M9.8 7.5v2.8" />
+      </svg>
+    );
   return (
     <svg {...common}>
-      <path d="M2.5 4h11l-.8 8.2a1 1 0 0 1-1 .9H4.3a1 1 0 0 1-1-.9L2.5 4Z" />
-      <path d="M6 4V2.8M10 4V2.8M6.2 7.5v2.8M9.8 7.5v2.8" />
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 7.2v4M8 4.9v.6" />
     </svg>
   );
 }
@@ -213,6 +222,7 @@ export default function App() {
 
         {view === "largest" && <ScannerPanel volumes={volumes} onVolumes={setVolumes} />}
         {view === "clean" && <CleanerPanel />}
+        {view === "about" && <AboutPanel />}
       </main>
 
       <footer className="statusbar">

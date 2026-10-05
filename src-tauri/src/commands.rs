@@ -8,7 +8,8 @@ use crate::clean;
 use crate::error::{AppError, AppResult};
 use crate::junk;
 use crate::model::{
-    CleanOutcome, CleanPlan, CleanRequest, JunkTarget, ScanProgress, ScanResult, SystemInfo,
+    BuildInfo, CleanOutcome, CleanPlan, CleanRequest, JunkTarget, ScanProgress, ScanResult,
+    SystemInfo,
 };
 use crate::paths;
 use crate::scan::{self, ScanOptions};
@@ -28,6 +29,31 @@ pub async fn system_info() -> AppResult<SystemInfo> {
         os_version: System::os_version().unwrap_or_else(|| "unknown".into()),
         home: paths::home_dir().to_string_lossy().to_string(),
         separator: std::path::MAIN_SEPARATOR.to_string(),
+    })
+}
+
+/// Version and platform facts for the About panel. Everything here is read from
+/// the build environment at compile time or from the running process, so the
+/// panel cannot drift from what was actually shipped.
+#[tauri::command]
+pub async fn build_info(app: tauri::AppHandle) -> AppResult<BuildInfo> {
+    use sysinfo::System;
+
+    Ok(BuildInfo {
+        app_name: app.package_info().name.clone(),
+        version: app.package_info().version.to_string(),
+        os_name: System::name().unwrap_or_else(|| std::env::consts::OS.to_string()),
+        os_version: System::os_version().unwrap_or_else(|| "unknown".into()),
+        arch: std::env::consts::ARCH.to_string(),
+        kernel: System::kernel_version().unwrap_or_else(|| "unknown".into()),
+        // Only set when launched through a Node-driven dev/build script; a bare
+        // `./diska` launch has no user agent, so `None` is the honest answer.
+        package_manager: std::env::var("npm_config_user_agent")
+            .ok()
+            .and_then(|ua| ua.split_whitespace().next().map(str::to_string))
+            .filter(|s| !s.is_empty()),
+        tauri_version: tauri::VERSION.to_string(),
+        rust_version: env!("CARGO_PKG_RUST_VERSION").to_string(),
     })
 }
 

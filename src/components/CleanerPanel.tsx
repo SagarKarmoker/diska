@@ -294,30 +294,75 @@ export function CleanerPanel() {
       <Section title="Reclaim space">
         <p className="note">
           Every location below is a well-known cache. Only fully regenerable items are
-          pre-selected, nothing is removed without a confirmation that lists each path, and files
-          go to your trash unless you explicitly choose permanent deletion.
+          pre-selected, and nothing is removed without a confirmation that lists each path.
         </p>
 
         <div className="toolbar">
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={includeStale}
-              onChange={(e) => setIncludeStale(e.target.checked)}
-            />
-            Aggressive sweep: old installers, stale logs, build output
-          </label>
           <button className="btn primary" onClick={detect} disabled={busy}>
             {busy ? "Detecting…" : targets ? "Rescan" : "Find junk"}
           </button>
-          <label className="check">
+          {targets && (
+            <span className="toolbar-note">
+              {formatCount(targets.length)} location{targets.length === 1 ? "" : "s"} found
+            </span>
+          )}
+        </div>
+
+        {/* Options are a labelled group rather than loose controls in the
+            toolbar: the primary action stays alone, and the two settings read
+            as settings with their consequences spelled out. */}
+        <div className="settings">
+          <div className="setting">
+            <label className="setting-text" htmlFor="opt-sweep">
+              <span className="setting-name">Aggressive sweep</span>
+              <span className="setting-hint">
+                Also looks for old installers, stale logs and build output. Slower, and may
+                include files you still want.
+              </span>
+            </label>
             <input
+              id="opt-sweep"
+              className="switch"
               type="checkbox"
-              checked={useTrash}
-              onChange={(e) => setUseTrash(e.target.checked)}
+              role="switch"
+              checked={includeStale}
+              onChange={(e) => setIncludeStale(e.target.checked)}
             />
-            Move to trash instead of deleting
-          </label>
+          </div>
+
+          <div className="setting">
+            <span className="setting-text">
+              <span className="setting-name">Where files go</span>
+              <span className="setting-hint">
+                {useTrash
+                  ? "Moved to your system trash, so anything can be restored."
+                  : "Deleted immediately with no way to recover them."}
+              </span>
+            </span>
+            {/* Trash vs permanent is a choice between two modes, not an
+                on/off preference, so it is a segmented control rather than a
+                checkbox whose off state is easy to misread. */}
+            <div className="segmented" role="radiogroup" aria-label="Where files go">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={useTrash}
+                className={useTrash ? "on" : undefined}
+                onClick={() => setUseTrash(true)}
+              >
+                Trash
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!useTrash}
+                className={!useTrash ? "on is-danger" : undefined}
+                onClick={() => setUseTrash(false)}
+              >
+                Permanent
+              </button>
+            </div>
+          </div>
         </div>
 
         {busy && progress && (

@@ -164,6 +164,21 @@ pub struct CleanFailure {
     pub reason: String,
 }
 
+/// Build and platform facts for the About panel.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildInfo {
+    pub app_name: String,
+    pub version: String,
+    pub os_name: String,
+    pub os_version: String,
+    pub arch: String,
+    pub kernel: String,
+    pub package_manager: Option<String>,
+    pub tauri_version: String,
+    pub rust_version: String,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemInfo {

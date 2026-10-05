@@ -15,6 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(ScanState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::build_info,
             commands::system_info,
             commands::list_volumes,
             commands::default_scan_roots,
