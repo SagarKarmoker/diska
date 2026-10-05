@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local release artifacts, built with `pnpm tauri build`.
+diska_*.deb
+diska_*.deb.sha256

@@ -75,6 +75,37 @@ pnpm tauri dev      # development
 pnpm tauri build    # produces installers in src-tauri/target/release/bundle
 ```
 
+## Distribution
+
+```bash
+pnpm tauri build
+```
+
+Output lands in `src-tauri/target/release/bundle/`. The configured target is a
+`.deb`, so on a typical Ubuntu build it produces
+`deb/diska_<version>_amd64.deb` at roughly 3.3 MB.
+
+The `.deb` installs a single stripped binary to `/usr/bin/diska`, hicolor icons
+at five sizes, and a `.desktop` entry, so the app appears in the launcher with
+its own icon. It declares `libwebkit2gtk-4.1-0` and `libgtk-3-0` as dependencies;
+everything else the binary links resolves transitively through those.
+
+To also ship a portable `.AppImage`, install `appimagetool` and set
+`bundle.targets` to `["deb", "appimage"]`. `rpm` needs the `rpm` build tool
+installed, and `.exe`/`.msi` require building on Windows, since installers are
+platform-specific.
+
+Verify a built package without installing it:
+
+```bash
+dpkg-deb -I diska_0.1.0_amd64.deb          # metadata and dependencies
+dpkg-deb -c diska_0.1.0_amd64.deb          # file list
+dpkg-deb -x diska_0.1.0_amd64.deb /tmp/x && /tmp/x/usr/bin/diska   # run it
+```
+
+Release artifacts are gitignored: build them, then attach them to a GitHub
+release rather than committing binaries.
+
 ## Verifying
 
 Beyond the unit tests, the frontend is checked by rendering the real production bundle in
