@@ -1,34 +1,62 @@
 import { useEffect, useState } from "react";
 
 import { CleanerPanel } from "./components/CleanerPanel";
-import { ScannerPanel } from "./components/ScannerPanel";
-import { Empty, Section, UsageBar } from "./components/primitives";
-import {
-  errorMessage,
-  listVolumes,
-  systemInfo,
-  type SystemInfo,
-  type VolumeInfo,
-} from "./lib/ipc";
+import { ScannerPanel, pressureOf } from "./components/ScannerPanel";
+import { Empty, Section, Stat, UsageBar, toneForPercent } from "./components/primitives";
+import { errorMessage, listVolumes, systemInfo, type SystemInfo, type VolumeInfo } from "./lib/ipc";
 import { formatBytes, percentOf } from "./lib/format";
 
-type Tab = "overview" | "largest" | "clean";
+type View = "overview" | "largest" | "clean";
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "largest", label: "Largest files" },
-  { id: "clean", label: "Clean" },
+const NAV: { id: View; label: string; hint: string }[] = [
+  { id: "overview", label: "Overview", hint: "Capacity at a glance" },
+  { id: "largest", label: "Largest files", hint: "What is using space" },
+  { id: "clean", label: "Clean", hint: "Reclaim caches" },
 ];
 
+/** Minimal inline glyphs. Drawn rather than iconified so there is no dependency. */
+function Glyph({ id }: { id: View }) {
+  const common = {
+    width: 15,
+    height: 15,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+  };
+
+  if (id === "overview")
+    return (
+      <svg {...common}>
+        <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+        <path d="M2 10h3M13 10h1M5 13.5v-1M8 13.5v-1M11 13.5v-1" />
+      </svg>
+    );
+  if (id === "largest")
+    return (
+      <svg {...common}>
+        <path d="M2 4h12M2 8h8M2 12h5" />
+      </svg>
+    );
+  return (
+    <svg {...common}>
+      <path d="M2.5 4h11l-.8 8.2a1 1 0 0 1-1 .9H4.3a1 1 0 0 1-1-.9L2.5 4Z" />
+      <path d="M6 4V2.8M10 4V2.8M6.2 7.5v2.8M9.8 7.5v2.8" />
+    </svg>
+  );
+}
+
 export default function App() {
-  const [tab, setTab] = useState<Tab>("overview");
+  const [view, setView] = useState<View>("overview");
   const [volumes, setVolumes] = useState<VolumeInfo[]>([]);
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Volume and OS lookups are independent, so neither has to wait for the
-    // other before the UI renders.
+    // Independent lookups: neither has to wait for the other to render.
     systemInfo()
       .then(setInfo)
       .catch((e) => setError(errorMessage(e)));
@@ -37,104 +65,172 @@ export default function App() {
       .catch((e) => setError(errorMessage(e)));
   }, []);
 
-  const busiest = volumes.reduce<VolumeInfo | null>(
-    (worst, v) => (worst === null || percentOf(v.usedBytes, v.totalBytes) > percentOf(worst.usedBytes, worst.totalBytes) ? v : worst),
-    null,
-  );
+  const busiest = pressureOf(volumes);
+  const usedPct = busiest ? percentOf(busiest.usedBytes, busiest.totalBytes) : 0;
 
   return (
     <div className="app">
-      <header className="titlebar">
-        <h1>diska</h1>
-        {info && (
-          <span className="os">
-            {info.osName} {info.osVersion} · {info.home}
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="wordmark">
+            diska
+            <span className="sub">1.0</span>
           </span>
-        )}
-      </header>
-
-      <nav className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className="tab"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-
-      {error && (
-        <div className="panel">
-          <div className="error">{error}</div>
         </div>
-      )}
 
-      {tab === "overview" && (
-        <div className="panel">
-          <Section title="Where your space went">
-            <p className="note">
-              Run a scan to find the files and folders eating your disk. Nothing is deleted here.
-            </p>
-            <div className="toolbar">
-              <button className="btn primary" onClick={() => setTab("largest")}>
-                Scan for largest files
-              </button>
-              <button className="btn" onClick={() => setTab("clean")}>
-                Clean caches
-              </button>
-            </div>
-          </Section>
+        <nav className="nav" aria-label="Sections">
+          {NAV.map((item) => (
+            <button
+              key={item.id}
+              className="navitem"
+              aria-current={view === item.id ? "page" : undefined}
+              // The label text is hidden when the sidebar collapses to a rail,
+              // so the accessible name is set explicitly rather than being
+              // derived from the visible text.
+              aria-label={item.label}
+              title={item.label}
+              onClick={() => setView(item.id)}
+            >
+              <Glyph id={item.id} />
+              <span className="navtext" aria-hidden="true">
+                <span className="navlabel">{item.label}</span>
+                <span className="navhint">{item.hint}</span>
+              </span>
+            </button>
+          ))}
+        </nav>
 
-          <Section title="Capacity">
-            {volumes.length === 0 ? (
-              <Empty>No fixed volumes reported.</Empty>
-            ) : (
-              <div className="volumes">
-                {volumes.map((v) => (
-                  <div className="volume" key={v.mount}>
-                    <div className="mount">
-                      {v.mount}
-                      {v.label ? <span className="tag">{v.label}</span> : null}
-                      <span className="tag">{v.fsType}</span>
-                    </div>
-                    <UsageBar used={v.usedBytes} total={v.totalBytes} />
-                    <div className="figures">
-                      <span>
-                        {formatBytes(v.usedBytes)} used of {formatBytes(v.totalBytes)}
-                      </span>
-                      <span>{formatBytes(v.availableBytes)} free</span>
-                    </div>
-                  </div>
-                ))}
+        <div className="sidefoot">
+          <div className="sidefoot-head">
+            <span className="k">Tightest volume</span>
+            <span className="pct">{usedPct.toFixed(0)}%</span>
+          </div>
+          {busiest ? (
+            <>
+              <UsageBar used={busiest.usedBytes} total={busiest.totalBytes} />
+              <div className="sidefoot-figures">
+                <span className="mono">{formatBytes(busiest.availableBytes)} free</span>
+                <span className="tag">{busiest.fsType}</span>
               </div>
-            )}
-          </Section>
-        </div>
-      )}
+            </>
+          ) : (
+            <p className="sidefoot-empty">No volume data yet.</p>
+          )}
 
-      {tab === "largest" && <ScannerPanel volumes={volumes} onVolumes={setVolumes} />}
-      {tab === "clean" && <CleanerPanel />}
+          {info && (
+            <p className="sidefoot-os">
+              {info.osName} {info.osVersion}
+            </p>
+          )}
+        </div>
+      </aside>
+
+      <main className="main">
+        {error && (
+          <div className="panel">
+            <div className="error">{error}</div>
+          </div>
+        )}
+
+        {view === "overview" && (
+          <div className="panel">
+            <Section title="Your disk">
+              <div className="headline">
+                {busiest ? (
+                  <>
+                    <Stat
+                      label="Free"
+                      value={formatBytes(busiest.availableBytes)}
+                      sub={`of ${formatBytes(busiest.totalBytes)} on ${busiest.mount}`}
+                      accent
+                    />
+                    <Stat
+                      label="Used"
+                      value={`${usedPct.toFixed(1)}%`}
+                      sub={formatBytes(busiest.usedBytes)}
+                    />
+                    <Stat
+                      label="Pressure"
+                      value={
+                        toneForPercent(usedPct) === "critical"
+                          ? "Critical"
+                          : toneForPercent(usedPct) === "warn"
+                            ? "Getting tight"
+                            : "Healthy"
+                      }
+                      sub={
+                        toneForPercent(usedPct) === "critical"
+                          ? "Under 10% remaining"
+                          : toneForPercent(usedPct) === "warn"
+                            ? "Consider a cleanup"
+                            : "Room to spare"
+                      }
+                    />
+                  </>
+                ) : (
+                  <Stat label="Status" value="Reading volumes…" />
+                )}
+              </div>
+
+              <div className="toolbar">
+                <button className="btn primary" onClick={() => setView("largest")}>
+                  Find what is using space
+                </button>
+                <button className="btn" onClick={() => setView("clean")}>
+                  Reclaim caches
+                </button>
+              </div>
+            </Section>
+
+            <Section title="Capacity">
+              {volumes.length === 0 ? (
+                <Empty title="No volumes reported">
+                  Fixed disks will appear here once detected.
+                </Empty>
+              ) : (
+                <div className="volumes">
+                  {volumes.map((v) => (
+                    <div className="volume" key={v.mount}>
+                      <div className="mount">
+                        {v.mount}
+                        {v.label && <span className="tag">{v.label}</span>}
+                        <span className="tag">{v.fsType}</span>
+                      </div>
+                      <UsageBar used={v.usedBytes} total={v.totalBytes} />
+                      <div className="figures">
+                        <span>
+                          {formatBytes(v.usedBytes)} of {formatBytes(v.totalBytes)}
+                        </span>
+                        <span>{formatBytes(v.availableBytes)} free</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          </div>
+        )}
+
+        {view === "largest" && <ScannerPanel volumes={volumes} onVolumes={setVolumes} />}
+        {view === "clean" && <CleanerPanel />}
+      </main>
 
       <footer className="statusbar">
         {busiest ? (
           <>
+            <span>{busiest.mount}</span>
+            <span className="sep" />
             <span>
               {formatBytes(busiest.usedBytes)} used of {formatBytes(busiest.totalBytes)}
             </span>
-            <span>{formatBytes(busiest.availableBytes)} free</span>
             <span className="spacer" />
             <span>
-              {percentOf(busiest.usedBytes, busiest.totalBytes).toFixed(1)}% full on{" "}
-              {busiest.mount}
+              {formatBytes(busiest.availableBytes)} free · {usedPct.toFixed(1)}% full
             </span>
           </>
         ) : (
           <>
-            <span>No volume information yet</span>
+            <span>Waiting for volume information</span>
             <span className="spacer" />
           </>
         )}

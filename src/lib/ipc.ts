@@ -63,6 +63,8 @@ export interface JunkTarget {
   entryCount: number;
   risk: Risk;
   needsElevation: boolean;
+  /** Computed by Rust, so the default-selection policy has one source of truth. */
+  selectedByDefault: boolean;
   reason: string;
 }
 
@@ -134,6 +136,8 @@ export function detectJunk(
   includeStale: boolean,
   onProgress: (p: DetectProgress) => void,
 ): Promise<JunkTarget[]> {
+  // The channel argument is always supplied: the Rust command declares it as a
+  // required `Channel<T>`, since Tauri has no `Option<Channel<_>>` binding.
   return invoke<JunkTarget[]>("detect_junk", {
     includeStale,
     onProgress: new Channel<DetectProgress>(onProgress),

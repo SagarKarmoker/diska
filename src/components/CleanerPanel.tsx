@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { Empty, ErrorBox, RiskBadge, Section } from "./primitives";
+import { Empty, RiskBadge, Section } from "./primitives";
 import {
   detectJunk,
   dryRunClean,
@@ -14,37 +14,42 @@ import {
 } from "../lib/ipc";
 import { formatBytes, formatCount } from "../lib/format";
 
+const RISK_ORDER = { safe: 0, rebuildable: 1, caution: 2 } as const;
+
 /**
- * Confirmation dialog. Deleting is irreversible, so the user sees the exact
- * paths and byte totals, and permanent deletion is spelled out separately from
- * moving to the trash.
+ * Confirmation dialog.
+ *
+ * Deleting is irreversible, so the dialog states the exact paths and byte
+ * totals, and separates "moves to trash" from "gone for good". Every reason
+ * string from the backend is repeated here so the decision is made with the
+ * same information the rule was defined with.
  */
 function ConfirmDialog({
   plan,
   targets,
   useTrash,
+  busy,
   onCancel,
   onConfirm,
-  busy,
 }: {
   plan: CleanPlan;
   targets: JunkTarget[];
   useTrash: boolean;
+  busy: boolean;
   onCancel: () => void;
   onConfirm: () => void;
-  busy: boolean;
 }) {
   const elevated = targets.filter((t) => t.needsElevation);
   const cautious = targets.filter((t) => t.risk === "caution");
 
   return (
-    <div className="backdrop" role="dialog" aria-modal="true" aria-label="Confirm clean">
-      <div className="dialog">
-        <h2>{useTrash ? "Move to trash?" : "Delete permanently?"}</h2>
+    <div className="backdrop">
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="Confirm clean">
+        <h2>{useTrash ? "Move these to the trash?" : "Delete these permanently?"}</h2>
         <p className="note">
           {useTrash
-            ? "The files move to your system trash and can be restored from there."
-            : "This removes the files immediately. There is no trash and no undo."}
+            ? "Everything moves to your system trash, so you can restore anything you did not mean to select."
+            : "These files are removed immediately. There is no trash and no undo."}
         </p>
 
         <div className="totals">
@@ -56,32 +61,49 @@ function ConfirmDialog({
             <span className="k">Locations</span>
             <span className="v">{formatCount(plan.targetCount)}</span>
           </div>
+          <div>
+            <span className="k">Items</span>
+            <span className="v">{formatCount(plan.totalReclaimable > 0 ? targets.length : 0)}</span>
+          </div>
         </div>
 
         {!useTrash && (
           <div className="callout danger">
-            Permanent deletion cannot be undone. If you are unsure, choose the trash instead.
+            <span>
+              <b>Permanent deletion.</b> This cannot be undone. If you are unsure, use the trash
+              instead.
+            </span>
           </div>
         )}
 
         {cautious.length > 0 && (
           <div className="callout">
-            {cautious.length} of these hold real data rather than regenerable cache
-            {cautious.length === 1 ? "" : "s"}:{" "}
-            {cautious.map((t) => t.label).join(", ")}. Each is marked for review above.
+            <span>
+              <b>
+                {cautious.length} of these may hold real data
+              </b>{" "}
+              rather than regenerable cache:{" "}
+              {cautious.map((t) => t.label).join(", ")}.
+            </span>
           </div>
         )}
 
         {elevated.length > 0 && (
           <div className="callout">
-            {elevated.length} location(s) need administrator rights and will be skipped.
+            <span>
+              <b>
+                {elevated.length} location{elevated.length === 1 ? "" : "s"} need administrator
+                rights
+              </b>{" "}
+              and will be skipped. diska never asks for elevated permissions.
+            </span>
           </div>
         )}
 
         <ul className="paths">
           {targets.map((t) => (
             <li key={t.id}>
-              {formatBytes(t.size).padStart(9)}  {t.path}
+              {formatBytes(t.size).padStart(10)}  {t.path}
             </li>
           ))}
         </ul>
@@ -106,29 +128,36 @@ function ConfirmDialog({
 function Outcome({ outcome }: { outcome: CleanOutcome }) {
   return (
     <>
-      <div className="results">
+      <div className="meta">
         <span>Freed {formatBytes(outcome.freedBytes)}</span>
+        <span className="sep" />
         <span>{formatCount(outcome.removedCount)} items removed</span>
         {outcome.skipped.length > 0 && (
-          <span>{formatCount(outcome.skipped.length)} skipped</span>
+          <>
+            <span className="sep" />
+            <span>{formatCount(outcome.skipped.length)} skipped</span>
+          </>
         )}
         {outcome.failures.length > 0 && (
-          <span>{formatCount(outcome.failures.length)} failed</span>
+          <>
+            <span className="sep" />
+            <span>{formatCount(outcome.failures.length)} failed</span>
+          </>
         )}
       </div>
 
       {(outcome.skipped.length > 0 || outcome.failures.length > 0) && (
         <details>
-          <summary>Details</summary>
+          <summary>Why some files were left alone</summary>
           <ul className="paths">
             {outcome.failures.map((f) => (
-              <li key={`f-${f.path}`}>
-                failed: {f.path} — {f.reason}
+              <li className="bad" key={`f-${f.path}`}>
+                {f.path} — {f.reason}
               </li>
             ))}
             {outcome.skipped.map((s) => (
               <li key={`s-${s.path}`}>
-                skipped: {s.path} — {s.reason}
+                {s.path} — {s.reason}
               </li>
             ))}
           </ul>
@@ -149,6 +178,14 @@ export function CleanerPanel() {
   const [useTrash, setUseTrash] = useState(true);
   const [outcome, setOutcome] = useState<CleanOutcome | null>(null);
 
+  /**
+   * Ticks whatever Rust marked as safe to select. The policy lives in
+   * `junk::detect` next to the rules that assign risk, so the UI cannot drift
+   * out of step with the risk tiers.
+   */
+  const initialSelection = (found: JunkTarget[]) =>
+    new Set(found.filter((t) => t.selectedByDefault).map((t) => t.id));
+
   const detect = async () => {
     setBusy(true);
     setError(null);
@@ -158,10 +195,7 @@ export function CleanerPanel() {
     try {
       const found = await detectJunk(includeStale, setProgress);
       setTargets(found);
-      // Only fully regenerable caches start selected. Rebuildable items are
-      // slower to restore and "review" items may hold real data, so both stay
-      // off until the user opts in.
-      setSelected(new Set(found.filter((t) => t.risk === "safe" && !t.needsElevation).map((t) => t.id)));
+      setSelected(initialSelection(found));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -172,36 +206,40 @@ export function CleanerPanel() {
 
   const grouped = useMemo(() => {
     if (!targets) return [];
+
     const map = new Map<string, JunkTarget[]>();
     for (const t of targets) {
       const list = map.get(t.category) ?? [];
       list.push(t);
       map.set(t.category, list);
     }
-    return [...map.entries()].sort((a, b) => {
-      const sa = a[1].reduce((n, t) => n + t.size, 0);
-      const sb = b[1].reduce((n, t) => n + t.size, 0);
-      return sb - sa;
-    });
+
+    return [...map.entries()]
+      .map(([category, items]) => ({
+        category,
+        items: [...items].sort(
+          (a, b) => RISK_ORDER[a.risk] - RISK_ORDER[b.risk] || b.size - a.size,
+        ),
+        size: items.reduce((n, t) => n + t.size, 0),
+      }))
+      .sort((a, b) => b.size - a.size);
   }, [targets]);
 
   const selectedTargets = useMemo(
     () => targets?.filter((t) => selected.has(t.id)) ?? [],
     [targets, selected],
   );
-
   const selectedBytes = selectedTargets.reduce((n, t) => n + t.size, 0);
 
-  const toggle = (id: string) => {
+  const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
 
-  const toggleCategory = (ids: string[], on: boolean) => {
+  const setMany = (ids: string[], on: boolean) =>
     setSelected((prev) => {
       const next = new Set(prev);
       for (const id of ids) {
@@ -210,19 +248,16 @@ export function CleanerPanel() {
       }
       return next;
     });
-  };
 
   const askToClean = async () => {
     setBusy(true);
     setError(null);
     try {
-      // Dry run first so the dialog quotes numbers from the same code path that
-      // performs the clean, not from a stale list in the UI.
-      const dry = await dryRunClean([...selected], useTrash, includeStale);
-      setOutcome(dry);
-      setPlan(
-        await previewClean([...selected], includeStale),
-      );
+      // Dry run first, so the dialog quotes the same code path that will run.
+      // Its outcome is intentionally not displayed: nothing has been removed
+      // yet, and reporting "items removed" before confirmation would be a lie.
+      await dryRunClean([...selected], useTrash, includeStale);
+      setPlan(await previewClean([...selected], includeStale));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -234,13 +269,12 @@ export function CleanerPanel() {
     setBusy(true);
     setError(null);
     try {
-      const result = await runClean([...selected], useTrash, includeStale);
-      setOutcome(result);
+      setOutcome(await runClean([...selected], useTrash, includeStale));
       setPlan(null);
-      // Sizes are now stale; re-detect so the list reflects reality.
+      // Sizes are stale after a clean; re-detect so the list reflects reality.
       const found = await detectJunk(includeStale, () => undefined);
       setTargets(found);
-      setSelected(new Set(found.filter((t) => t.risk === "safe" && !t.needsElevation).map((t) => t.id)));
+      setSelected(initialSelection(found));
     } catch (e) {
       setError(errorMessage(e));
       setPlan(null);
@@ -251,13 +285,17 @@ export function CleanerPanel() {
 
   return (
     <div className="panel">
-      {error && <ErrorBox message={error} />}
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
 
-      <Section title="Clean">
+      <Section title="Reclaim space">
         <p className="note">
-          Everything is detected by scanning well-known cache locations. Only fully regenerable
-          items are pre-selected. Nothing is removed without a confirmation that lists each path,
-          and files go to your trash unless you explicitly choose permanent deletion.
+          Every location below is a well-known cache. Only fully regenerable items are
+          pre-selected, nothing is removed without a confirmation that lists each path, and files
+          go to your trash unless you explicitly choose permanent deletion.
         </p>
 
         <div className="toolbar">
@@ -283,11 +321,11 @@ export function CleanerPanel() {
         </div>
 
         {busy && progress && (
-          <div className="results">
-            <span>{progress.phase}</span>
+          <div className="meta">
             <span>{progress.label}</span>
+            <span className="sep" />
             <span>
-              {formatCount(progress.targetsFound)} found, {formatBytes(progress.bytesSoFar)}
+              {formatCount(progress.targetsFound)} found · {formatBytes(progress.bytesSoFar)}
             </span>
           </div>
         )}
@@ -296,13 +334,16 @@ export function CleanerPanel() {
       </Section>
 
       {targets && targets.length === 0 && (
-        <Empty>Nothing cleanable found. Your caches are already tidy.</Empty>
+        <Empty title="Nothing to clean">
+          Your caches are already tidy. Turn on the aggressive sweep to look for old installers,
+          stale logs and build output as well.
+        </Empty>
       )}
 
-      {grouped.map(([category, items]) => {
-        const categoryBytes = items.reduce((n, t) => n + t.size, 0);
+      {grouped.map(({ category, items, size }) => {
         const ids = items.map((t) => t.id);
         const allOn = ids.every((id) => selected.has(id));
+        const someOn = ids.some((id) => selected.has(id));
 
         return (
           <div className="category" key={category}>
@@ -311,39 +352,41 @@ export function CleanerPanel() {
                 <input
                   type="checkbox"
                   checked={allOn}
-                  onChange={(e) => toggleCategory(ids, e.target.checked)}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allOn && someOn;
+                  }}
+                  onChange={(e) => setMany(ids, e.target.checked)}
                 />
                 <span className="name">{category}</span>
               </label>
               <span className="figures">
-                {formatBytes(categoryBytes)} · {items.length} item(s)
+                {formatBytes(size)} · {items.length} item{items.length === 1 ? "" : "s"}
               </span>
             </header>
 
             {items.map((t) => {
               const on = selected.has(t.id);
               return (
-                <div className={`target ${on ? "" : "is-off"}`} key={t.id}>
+                <label className={`target ${on ? "" : "is-off"}`} key={t.id}>
                   <input
                     type="checkbox"
                     checked={on}
                     disabled={t.needsElevation}
                     onChange={() => toggle(t.id)}
-                    aria-label={`Clean ${t.label}`}
                   />
-                  <div>
-                    <div className="label">
+                  <span className="body">
+                    <span className="label">
                       <span>{t.label}</span>
                       <RiskBadge risk={t.risk} />
                       {t.needsElevation && <span className="tag">needs admin</span>}
-                    </div>
-                    <div className="reason">{t.reason}</div>
-                    <div className="where">
+                    </span>
+                    <span className="reason">{t.reason}</span>
+                    <span className="where">
                       {t.path} · {formatCount(t.entryCount)} entries
-                    </div>
-                  </div>
-                  <div className="size">{formatBytes(t.size)}</div>
-                </div>
+                    </span>
+                  </span>
+                  <span className="size">{formatBytes(t.size)}</span>
+                </label>
               );
             })}
           </div>
@@ -351,10 +394,15 @@ export function CleanerPanel() {
       })}
 
       {selectedTargets.length > 0 && !plan && (
-        <div className="toolbar">
-          <span>
-            {selectedTargets.length} location(s), {formatBytes(selectedBytes)} reclaimable
+        <div className="actionbar">
+          <span className="figures">
+            {selectedTargets.length} location{selectedTargets.length === 1 ? "" : "s"} selected ·{" "}
+            <b>{formatBytes(selectedBytes)}</b> reclaimable
           </span>
+          <span className="spacer" />
+          <button className="btn" onClick={() => setSelected(new Set())} disabled={busy}>
+            Clear selection
+          </button>
           <button className="btn primary" onClick={askToClean} disabled={busy}>
             Review and clean
           </button>

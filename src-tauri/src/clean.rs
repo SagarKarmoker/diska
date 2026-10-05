@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 use crate::junk;
-use crate::model::{CleanFailure, CleanOutcome, CleanRequest, CleanSkip, JunkTarget, Risk};
+use crate::model::{CleanFailure, CleanOutcome, CleanRequest, CleanSkip, JunkTarget};
 use crate::paths;
 
 /// Execute a clean request, re-discovering targets first so that only paths this
@@ -248,15 +248,10 @@ fn is_symlink(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Categories whose contents are only regenerated, as opposed to user data.
-/// Used by the UI to decide which checkboxes start enabled.
-pub fn defaults_to_selected(risk: Risk) -> bool {
-    matches!(risk, Risk::Safe)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Risk;
 
     fn temp_root(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("diska-clean-{name}"));
@@ -288,6 +283,7 @@ mod tests {
             entry_count: count,
             risk: Risk::Safe,
             needs_elevation: paths::needs_elevation(dir),
+            selected_by_default: false,
             reason: "test target".to_string(),
         }
     }
@@ -468,12 +464,5 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&real);
-    }
-
-    #[test]
-    fn only_safe_risk_targets_are_selected_by_default() {
-        assert!(defaults_to_selected(Risk::Safe));
-        assert!(!defaults_to_selected(Risk::Rebuildable));
-        assert!(!defaults_to_selected(Risk::Caution));
     }
 }

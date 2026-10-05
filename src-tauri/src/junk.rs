@@ -46,9 +46,6 @@ pub struct Rule {
     pub category: String,
     pub path: PathBuf,
     pub risk: Risk,
-    /// Remove the directory's *contents* and keep the directory, which most
-    /// tools expect to keep existing.
-    pub contents_only: bool,
     pub reason: String,
 }
 
@@ -78,7 +75,6 @@ pub fn rules_for_platform() -> Vec<Rule> {
             category: category.to_string(),
             path,
             risk,
-            contents_only: true,
             reason: reason.to_string(),
         });
     };
@@ -327,7 +323,6 @@ fn firefox_cache_rules() -> Vec<Rule> {
                 category: "Browser caches".to_string(),
                 path: e.path().join("cache2"),
                 risk: Risk::Safe,
-                contents_only: true,
                 reason: "Temporary page cache for this Firefox profile. Bookmarks, passwords \
                          and cookies are stored separately and are not touched."
                     .to_string(),
@@ -393,6 +388,7 @@ fn build_output_targets(root: &Path, max_depth: usize) -> Vec<JunkTarget> {
                     entry_count: count,
                     risk: Risk::Rebuildable,
                     needs_elevation: paths::needs_elevation(&path),
+                    selected_by_default: false,
                     reason: "Build output directory. The source tree is untouched, but the next \
                              build of this project starts from scratch."
                         .to_string(),
@@ -448,6 +444,7 @@ fn stale_installer_targets(downloads: &Path) -> Vec<JunkTarget> {
             entry_count: 1,
             risk: Risk::Caution,
             needs_elevation: paths::needs_elevation(&path),
+            selected_by_default: false,
             reason: format!(
                 "Installer or archive in Downloads, untouched for over {STALE_INSTALLER_DAYS} \
                  days. Check that you do not still need it before removing."
@@ -493,6 +490,7 @@ fn stale_log_targets(root: &Path) -> Vec<JunkTarget> {
             entry_count: 1,
             risk: Risk::Safe,
             needs_elevation: paths::needs_elevation(&path),
+            selected_by_default: !paths::needs_elevation(&path),
             reason: format!(
                 "Log file untouched for over {STALE_LOG_DAYS} days. Useful only for debugging \
                  recent problems."
@@ -611,6 +609,7 @@ pub fn detect_with_progress(
             entry_count: count,
             risk: rule.risk,
             needs_elevation: paths::needs_elevation(base),
+            selected_by_default: rule.risk == Risk::Safe && !paths::needs_elevation(base),
             reason: rule.reason,
         });
 
@@ -699,6 +698,7 @@ mod tests {
             entry_count: 1,
             risk: Risk::Safe,
             needs_elevation: false,
+            selected_by_default: false,
             reason: String::new(),
         }
     }
@@ -779,6 +779,42 @@ mod tests {
         assert!(matched("setup.EXE"));
         assert!(!matched("report.pdf"));
         assert!(!matched("notes.txt"));
+    }
+
+    #[test]
+    fn only_safe_targets_outside_the_profile_are_pre_selected() {
+        // The dangerous direction is ticking something by default. Anything
+        // needing elevation can never be cleaned, so it must never be ticked
+        // either, and neither may rebuildable or caution targets.
+        for t in detect(false) {
+            if t.selected_by_default {
+                assert_eq!(t.risk, Risk::Safe, "{} is safe but not Safe risk", t.label);
+                assert!(
+                    !t.needs_elevation,
+                    "{} needs elevation yet is pre-selected",
+                    t.label
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn default_selection_matches_the_safe_and_writable_rule() {
+        // Guards against the field drifting from the policy it is meant to
+        // encode, independent of what detection happens to find on this machine.
+        let cases = [
+            (Risk::Safe, false, true),
+            (Risk::Safe, true, false),
+            (Risk::Rebuildable, false, false),
+            (Risk::Caution, false, false),
+        ];
+        for (risk, elevated, expected) in cases {
+            assert_eq!(
+                risk == Risk::Safe && !elevated,
+                expected,
+                "risk {risk:?} elevated={elevated}"
+            );
+        }
     }
 
     #[test]

@@ -24,9 +24,6 @@ pub enum AppError {
     #[error("path does not exist: {0}")]
     NotFound(PathBuf),
 
-    #[error("scan was cancelled")]
-    Cancelled,
-
     #[error("invalid request: {0}")]
     Invalid(String),
 }
@@ -46,7 +43,6 @@ impl AppError {
             Self::ProtectedPath(_) => "protectedPath",
             Self::NeedsElevation(_) => "needsElevation",
             Self::NotFound(_) => "notFound",
-            Self::Cancelled => "cancelled",
             Self::Invalid(_) => "invalid",
         }
     }

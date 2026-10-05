@@ -99,6 +99,10 @@ pub struct JunkTarget {
     pub risk: Risk,
     /// True when the target lives outside the user profile and needs admin rights.
     pub needs_elevation: bool,
+    /// Whether the UI should start this target ticked. Computed here so the
+    /// default-selection policy lives in exactly one place, next to the rules
+    /// that decide risk, rather than being duplicated in the frontend.
+    pub selected_by_default: bool,
     /// Why this path is considered junk, shown verbatim in the confirm dialog.
     pub reason: String,
 }
@@ -121,7 +125,12 @@ pub struct CategoryTotal {
     pub target_count: u64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+/// A clean instruction from the frontend.
+///
+/// Both sides are `#[serde(rename_all = "camelCase")]`: the struct for
+/// deserialising the incoming request, and the field names, so the frontend
+/// sends `allowPermanent` to match the property name it already uses.
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CleanRequest {
     pub ids: Vec<String>,

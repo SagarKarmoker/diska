@@ -1,81 +1,85 @@
 import { useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { Section, UsageBar, Empty } from "./primitives";
+import { Empty, Section, Stat, UsageBar, toneForPercent } from "./primitives";
 import {
   cancelScan,
   defaultScanRoots,
   errorMessage,
   startScan,
-  type FolderEntry,
   type FileEntry,
+  type FolderEntry,
   type ScanProgress,
   type ScanResult,
   type VolumeInfo,
 } from "../lib/ipc";
-import {
-  formatBytes,
-  formatCount,
-  formatRelativeTime,
-  percentOf,
-  shortenPath,
-} from "../lib/format";
+import { formatBytes, formatCount, formatRelativeTime, percentOf, shortenPath } from "../lib/format";
 
 type SortDir = "asc" | "desc";
 
-function comparator<T>(a: T, b: T, key: keyof T & string, dir: SortDir): number {
+/** Sorts numbers numerically and everything else as text. */
+function compare(a: unknown, b: unknown, dir: SortDir): number {
   const sign = dir === "asc" ? 1 : -1;
-  const left = a[key];
-  const right = b[key];
-
-  if (typeof left === "number" && typeof right === "number") {
-    return (left - right) * sign;
-  }
-  return String(left).localeCompare(String(right)) * sign;
+  if (typeof a === "number" && typeof b === "number") return (a - b) * sign;
+  return String(a).localeCompare(String(b)) * sign;
 }
 
 interface Column<T> {
-  /** React key. Presentational columns use an arbitrary string like "bar". */
+  /** React key and column identity. */
   id: string;
   /** Field of `T` this column sorts by. Omit for presentational columns. */
   sort?: keyof T & string;
+  /** Sort by this column on first render. Exactly one column should set it. */
+  sortDefault?: boolean;
   label: string;
   className?: string;
+  align?: "right";
   render: (row: T) => React.ReactNode;
 }
 
-/** Sortable, filterable table for the scan results. */
+/**
+ * Sortable, filterable table.
+ *
+ * The default sort is whichever column is marked `sortDefault`, and the filter
+ * runs before sorting so the order stays stable as the query narrows.
+ */
 function SortableTable<T>({
   rows,
-  keyField,
+  idField,
   columns,
   filter,
-  filterPlaceholder,
-  emptyMessage,
+  placeholder,
+  emptyTitle,
+  emptyBody,
 }: {
   rows: T[];
-  keyField: keyof T & string;
+  idField: keyof T & string;
   columns: Column<T>[];
   filter: (row: T, needle: string) => boolean;
-  filterPlaceholder: string;
-  emptyMessage: string;
+  placeholder: string;
+  emptyTitle: string;
+  emptyBody?: string;
 }) {
-  const firstSortKey = (columns.find((c) => c.sort)?.sort ?? "size") as keyof T & string;
-  const [sortKey, setSortKey] = useState<keyof T & string>(firstSortKey);
+  // Default to the column marked `sortDefault` (size, for both result tables),
+  // not merely the first sortable column, which would sort by name.
+  const defaultCol = columns.find((c) => c.sortDefault) ?? columns.find((c) => c.sort);
+  const [sortKey, setSortKey] = useState<(keyof T & string) | undefined>(defaultCol?.sort);
   const [dir, setDir] = useState<SortDir>("desc");
   const [needle, setNeedle] = useState("");
 
   const visible = useMemo(() => {
     const q = needle.trim().toLowerCase();
-    const filtered = q ? rows.filter((r) => filter(r, q)) : rows;
-    return [...filtered].sort((a, b) => comparator(a, b, sortKey, dir));
+    const matched = q ? rows.filter((r) => filter(r, q)) : rows;
+    if (!sortKey) return matched;
+    return [...matched].sort((a, b) => compare(a[sortKey], b[sortKey], dir));
   }, [rows, needle, sortKey, dir, filter]);
 
-  const onHeader = (key: NonNullable<keyof T & string>) => {
+  const onHeader = (key: keyof T & string) => {
     if (key === sortKey) {
       setDir(dir === "asc" ? "desc" : "asc");
     } else {
       setSortKey(key);
+      // Names read best A-Z, sizes best largest-first.
       setDir(key === "name" ? "asc" : "desc");
     }
   };
@@ -86,52 +90,66 @@ function SortableTable<T>({
         <input
           type="text"
           value={needle}
-          placeholder={filterPlaceholder}
+          placeholder={placeholder}
           onChange={(e) => setNeedle(e.target.value)}
-          aria-label={filterPlaceholder}
+          aria-label={placeholder}
         />
         <span className="tag">
-          {formatCount(visible.length)} of {formatCount(rows.length)} shown
+          {formatCount(visible.length)} of {formatCount(rows.length)}
         </span>
+        {needle && (
+          <button className="btn ghost" onClick={() => setNeedle("")}>
+            Clear
+          </button>
+        )}
       </div>
 
       {visible.length === 0 ? (
-        <Empty>{emptyMessage}</Empty>
+        <Empty title={emptyTitle}>{emptyBody}</Empty>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              {columns.map((c) => (
-                <th
-                  key={c.id}
-                  className={c.sort ? undefined : "static"}
-                  onClick={c.sort ? () => onHeader(c.sort as keyof T & string) : undefined}
-                  aria-sort={
-                    c.sort && sortKey === c.sort
-                      ? dir === "asc"
-                        ? "ascending"
-                        : "descending"
-                      : "none"
-                  }
-                >
-                  {c.label}
-                  {c.sort && sortKey === c.sort ? (dir === "asc" ? " \u25b2" : " \u25bc") : ""}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row) => (
-              <tr key={String(row[keyField])}>
-                {columns.map((c) => (
-                  <td key={c.id} className={c.className}>
-                    {c.render(row)}
-                  </td>
+        <div className="tablewrap">
+          <div className="tablescroll">
+            <table>
+              <thead>
+                <tr>
+                  {columns.map((c) => (
+                    <th
+                      key={c.id}
+                      className={c.sort ? "sortable" : undefined}
+                      style={c.align === "right" ? { textAlign: "right" } : undefined}
+                      onClick={c.sort ? () => onHeader(c.sort as keyof T & string) : undefined}
+                      aria-sort={
+                        c.sort && sortKey === c.sort
+                          ? dir === "asc"
+                            ? "ascending"
+                            : "descending"
+                          : "none"
+                      }
+                    >
+                      <span className="th">
+                        {c.label}
+                        {c.sort && sortKey === c.sort && (
+                          <span className="caret">{dir === "asc" ? "▲" : "▼"}</span>
+                        )}
+                      </span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((row) => (
+                  <tr key={String(row[idField])}>
+                    {columns.map((c) => (
+                      <td key={c.id} className={c.className}>
+                        {c.render(row)}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </>
   );
@@ -160,11 +178,7 @@ export function ScannerPanel({
       const chosen = roots ?? (await defaultScanRoots());
       if (!roots) setRoots(chosen);
 
-      const res = await startScan(chosen, setProgress, {
-        topFiles: 500,
-        topFolders: 300,
-      });
-
+      const res = await startScan(chosen, setProgress, { topFiles: 500, topFolders: 300 });
       setResult(res);
       onVolumes(res.roots);
     } catch (e) {
@@ -177,26 +191,24 @@ export function ScannerPanel({
 
   const reveal = (path: string) => {
     // Revealing in the file manager is deliberate over `openPath`: it selects
-    // the item in the parent folder instead of handing the file to its default
-    // application, so the UI can never launch anything on disk. It also stays
-    // within the permissions the opener plugin grants by default.
+    // the item in its parent folder instead of handing the file to its default
+    // application, so the UI can never launch anything on disk.
     revealItemInDir(path).catch(() => undefined);
   };
 
-  // Bar widths are relative to the largest row so the chart always fills the
-  // available space regardless of the absolute sizes. Computed once per render
-  // rather than per row.
-  const maxFileSize = result?.largestFiles.reduce((m, f) => Math.max(m, f.size), 0) ?? 0;
-  const maxFolderSize = result?.largestFolders.reduce((m, f) => Math.max(m, f.size), 0) ?? 0;
+  // Bar widths are relative to the largest row, so the chart fills the space
+  // regardless of absolute size. Computed once, not per row.
+  const maxFile = result?.largestFiles.reduce((m, f) => Math.max(m, f.size), 0) ?? 0;
+  const maxFolder = result?.largestFolders.reduce((m, f) => Math.max(m, f.size), 0) ?? 0;
 
-  const fileColumns: Column<FileEntry>[] = [
+const fileColumns: Column<FileEntry>[] = [
     {
       id: "name",
       sort: "name",
       label: "Name",
-      className: "name",
-      render: (r: FileEntry) => (
-        <button className="btn" onClick={() => reveal(r.path)} title={r.path}>
+      className: "strong",
+      render: (r) => (
+        <button className="filelink" onClick={() => reveal(r.path)} title={r.path}>
           {r.name}
         </button>
       ),
@@ -204,32 +216,29 @@ export function ScannerPanel({
     {
       id: "size",
       sort: "size",
+      sortDefault: true,
       label: "Size",
       className: "num",
-      render: (r: FileEntry) => formatBytes(r.size),
+      render: (r) => formatBytes(r.size),
+    },
+    {
+      id: "bar",
+      label: "",
+      className: "barcell",
+      render: (r) => <UsageBar used={r.size} total={maxFile} tone="ok" />,
     },
     {
       id: "modified",
       sort: "modified",
       label: "Modified",
       className: "num",
-      render: (r: FileEntry) => formatRelativeTime(r.modified),
-    },
-    {
-      id: "bar",
-      label: "",
-      className: "bar-cell",
-      render: (r: FileEntry) => (
-        <div className="bar">
-          <div className="fill is-ok" style={{ width: `${percentOf(r.size, maxFileSize)}%` }} />
-        </div>
-      ),
+      render: (r) => formatRelativeTime(r.modified),
     },
     {
       id: "path",
-      label: "Path",
+      label: "Location",
       className: "path",
-      render: (r: FileEntry) => shortenPath(r.path, 6),
+      render: (r) => shortenPath(r.path, 6),
     },
   ];
 
@@ -238,9 +247,9 @@ export function ScannerPanel({
       id: "name",
       sort: "name",
       label: "Folder",
-      className: "name",
-      render: (r: FolderEntry) => (
-        <button className="btn" onClick={() => reveal(r.path)} title={r.path}>
+      className: "strong",
+      render: (r) => (
+        <button className="filelink" onClick={() => reveal(r.path)} title={r.path}>
           {r.name}
         </button>
       ),
@@ -248,32 +257,29 @@ export function ScannerPanel({
     {
       id: "size",
       sort: "size",
+      sortDefault: true,
       label: "Size",
       className: "num",
-      render: (r: FolderEntry) => formatBytes(r.size),
+      render: (r) => formatBytes(r.size),
+    },
+    {
+      id: "bar",
+      label: "",
+      className: "barcell",
+      render: (r) => <UsageBar used={r.size} total={maxFolder} tone="ok" />,
     },
     {
       id: "fileCount",
       sort: "fileCount",
       label: "Files",
       className: "num",
-      render: (r: FolderEntry) => formatCount(r.fileCount),
-    },
-    {
-      id: "bar",
-      label: "",
-      className: "bar-cell",
-      render: (r: FolderEntry) => (
-        <div className="bar">
-          <div className="fill is-ok" style={{ width: `${percentOf(r.size, maxFolderSize)}%` }} />
-        </div>
-      ),
+      render: (r) => formatCount(r.fileCount),
     },
     {
       id: "path",
-      label: "Path",
+      label: "Location",
       className: "path",
-      render: (r: FolderEntry) => shortenPath(r.path, 6),
+      render: (r) => shortenPath(r.path, 6),
     },
   ];
 
@@ -283,21 +289,20 @@ export function ScannerPanel({
 
       <Section title="Volumes">
         {volumes.length === 0 ? (
-          <Empty>No fixed volumes reported yet.</Empty>
+          <Empty title="No volumes reported">Mounted disks will appear here.</Empty>
         ) : (
           <div className="volumes">
             {volumes.map((v) => (
               <div className="volume" key={v.mount}>
                 <div className="mount">
                   {v.mount}
-                  {v.label ? <span className="tag">{v.label}</span> : null}
+                  {v.label && <span className="tag">{v.label}</span>}
                   <span className="tag">{v.fsType}</span>
-                  {v.removable ? <span className="tag">removable</span> : null}
                 </div>
                 <UsageBar used={v.usedBytes} total={v.totalBytes} />
                 <div className="figures">
                   <span>
-                    {formatBytes(v.usedBytes)} used of {formatBytes(v.totalBytes)}
+                    {formatBytes(v.usedBytes)} of {formatBytes(v.totalBytes)}
                   </span>
                   <span>{formatBytes(v.availableBytes)} free</span>
                 </div>
@@ -309,10 +314,12 @@ export function ScannerPanel({
 
       <Section title="Scan">
         <p className="note">
-          Walks {roots ? `${roots.length} location(s)` : "the default locations"} and keeps only
-          the largest files and folders, so memory stays flat no matter how many files the disk
-          holds. This reads metadata only and never opens file contents.
+          Reads file metadata across{" "}
+          {roots ? `${roots.length} location${roots.length === 1 ? "" : "s"}` : "the default locations"}{" "}
+          and keeps only the largest entries, so memory stays flat no matter how full the disk
+          is. File contents are never opened.
         </p>
+
         <div className="toolbar">
           <button className="btn primary" onClick={scan} disabled={busy}>
             {busy ? "Scanning…" : result ? "Rescan" : "Start scan"}
@@ -326,50 +333,51 @@ export function ScannerPanel({
         </div>
 
         {busy && progress && (
-          <div className="results">
-            <span>
-              {formatCount(progress.entriesSeen)} entries
-            </span>
+          <div className="meta">
+            <span>{formatCount(progress.entriesSeen)} entries</span>
+            <span className="sep" />
             <span>{formatBytes(progress.bytesSeen)} read</span>
+            <span className="sep" />
             <span>{progress.currentPath}</span>
           </div>
         )}
 
         {result && (
           <>
-            <div className="results">
-              <span>{formatBytes(result.totalBytes)} total</span>
-              <span>{formatCount(result.totalFiles)} files</span>
-              <span>{(result.elapsedMs / 1000).toFixed(1)}s</span>
+            <div className="headline">
+              <Stat label="Scanned" value={formatBytes(result.totalBytes)} />
+              <Stat label="Files" value={formatCount(result.totalFiles)} />
+              <Stat label="Took" value={`${(result.elapsedMs / 1000).toFixed(1)}s`} />
               {result.unreadableDirs > 0 && (
-                <span>{formatCount(result.unreadableDirs)} unreadable dirs skipped</span>
+                <Stat
+                  label="Skipped"
+                  value={formatCount(result.unreadableDirs)}
+                  sub="unreadable dirs"
+                />
               )}
-              {result.truncated && <span>top-N only</span>}
             </div>
 
             <Section title="Largest files">
               <SortableTable
                 rows={result.largestFiles}
-                keyField="path"
+                idField="path"
                 columns={fileColumns}
-                filterPlaceholder="Filter by name or path"
-                emptyMessage="No files matched."
-                filter={(r, q) =>
-                  r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)
-                }
+                filter={(r, q) => r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)}
+                placeholder="Filter by name or path"
+                emptyTitle="No files matched"
+                emptyBody="Try a shorter search."
               />
             </Section>
 
             <Section title="Largest folders">
               <SortableTable
                 rows={result.largestFolders}
-                keyField="path"
+                idField="path"
                 columns={folderColumns}
-                filterPlaceholder="Filter by folder name or path"
-                emptyMessage="No folders matched."
-                filter={(r, q) =>
-                  r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)
-                }
+                filter={(r, q) => r.name.toLowerCase().includes(q) || r.path.toLowerCase().includes(q)}
+                placeholder="Filter by folder name or path"
+                emptyTitle="No folders matched"
+                emptyBody="Try a shorter search."
               />
             </Section>
           </>
@@ -378,3 +386,13 @@ export function ScannerPanel({
     </div>
   );
 }
+
+/** Shared pressure reading used by the app bar and the overview. */
+export function pressureOf(volumes: VolumeInfo[]): VolumeInfo | null {
+  if (volumes.length === 0) return null;
+  return volumes.reduce((worst, v) =>
+    percentOf(v.usedBytes, v.totalBytes) > percentOf(worst.usedBytes, worst.totalBytes) ? v : worst,
+  );
+}
+
+export { toneForPercent };

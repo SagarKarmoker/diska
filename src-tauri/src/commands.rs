@@ -124,22 +124,22 @@ pub fn cancel_scan(state: tauri::State<'_, ScanState>) {
 #[tauri::command]
 pub async fn detect_junk(
     include_stale: Option<bool>,
-    on_progress: Option<Channel<junk::DetectProgress>>,
+    // Not an Option: Tauri has no `CommandArg` impl for `Option<Channel<_>>`, so
+    // the channel must be declared directly. The frontend always supplies one,
+    // and progress messages are simply dropped if it stops listening.
+    on_progress: Channel<junk::DetectProgress>,
 ) -> AppResult<Vec<JunkTarget>> {
     let include_stale = include_stale.unwrap_or(false);
 
-    let reporter = on_progress.map(|ch| {
-        let report = move |p: junk::DetectProgress| {
-            let _ = ch.send(p);
-        };
-        Box::new(report) as Box<dyn Fn(junk::DetectProgress) + Send + Sync>
+    let reporter: Box<dyn Fn(junk::DetectProgress) + Send + Sync> = Box::new(move |p| {
+        let _ = on_progress.send(p);
     });
 
-    tauri::async_runtime::spawn_blocking(move || {
-        junk::detect_with_progress(include_stale, reporter.as_deref())
-    })
+    run_blocking(
+        move || Ok(junk::detect_with_progress(include_stale, Some(&reporter))),
+        "detect",
+    )
     .await
-    .map_err(|e| AppError::Invalid(format!("detect task failed: {e}")))
 }
 
 /// Summarise a selection so the confirm dialog can state the exact totals.
@@ -164,9 +164,11 @@ pub async fn dry_run_clean(
     include_stale: Option<bool>,
 ) -> AppResult<CleanOutcome> {
     let include_stale = include_stale.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || clean::execute(&request, include_stale, true))
-        .await
-        .map_err(|e| AppError::Invalid(format!("dry run task failed: {e}")))
+    run_blocking(
+        move || clean::execute(&request, include_stale, true),
+        "dry run",
+    )
+    .await
 }
 
 /// Actually clean. Only ids discovered by `detect_junk` are honoured, so a
@@ -174,7 +176,25 @@ pub async fn dry_run_clean(
 #[tauri::command]
 pub async fn clean(request: CleanRequest, include_stale: Option<bool>) -> AppResult<CleanOutcome> {
     let include_stale = include_stale.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || clean::execute(&request, include_stale, false))
+    run_blocking(
+        move || clean::execute(&request, include_stale, false),
+        "clean",
+    )
+    .await
+}
+
+/// Run a blocking task and flatten the join error together with the task's own
+/// result.
+///
+/// `spawn_blocking` returns `Result<T, JoinError>` where `T` is itself a
+/// `Result`, so the `?` below is what collapses the two layers into the single
+/// `Result<T, AppError>` the command is declared to return.
+async fn run_blocking<T, F>(task: F, label: &str) -> AppResult<T>
+where
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(task)
         .await
-        .map_err(|e| AppError::Invalid(format!("clean task failed: {e}")))
+        .map_err(|e| AppError::Invalid(format!("{label} task failed: {e}")))?
 }
